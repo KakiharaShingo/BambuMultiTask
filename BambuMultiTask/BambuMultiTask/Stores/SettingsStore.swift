@@ -24,6 +24,10 @@ final class SettingsStore: ObservableObject {
         printers.removeAll { $0.id == printer.id }
     }
 
+    func replaceAll(_ newPrinters: [Printer]) {
+        printers = newPrinters
+    }
+
     private func load() {
         guard let data = UserDefaults.standard.data(forKey: key) else { return }
         if let decoded = try? JSONDecoder().decode([Printer].self, from: data) {

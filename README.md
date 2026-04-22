@@ -1,80 +1,86 @@
 # BambuMultiTask
 
-家庭内にある複数台の Bambu Lab 3D プリンタの進捗を **macOS のメニューバーから一目で確認** するための非公式ツールです。
-
-公式の Bambu Studio / Bambu Handy だと 1 台ずつ切り替えないと残り時間や進捗が見られないので、全台の状態をまとめて眺められるようにしました。
+家庭内にある複数台の Bambu Lab 3D プリンタの進捗を **macOS アプリで一目で確認** するための非公式ツールです。公式の Bambu Studio / Handy は 1 台ずつ切替しないと残り時間が見られないため、全台の状態をまとめて眺められるようにしました。
 
 ## 特徴
 
-- メニューバーに常駐し、印刷中のうち**一番早く終わるプリンタの残り時間**を表示
-- メニューを開くと全プリンタの進捗・残り時間・レイヤー・ノズル/ベッド温度を一覧表示
-- ローカル MQTT (LAN Only Mode) で通信するためクラウド不要・インターネット不要
-- 複数台の登録・削除・編集が可能
+- プリンタの進捗・残り時間・レイヤー・温度を**カードUIで一覧表示**
+- **LAN 接続** (LAN Only Mode) と **Bambu クラウド接続** の両対応
+- クラウドアカウントログイン → 登録機器リストを自動取り込み
+- App Sandbox 対応済み、Developer Team 署名済み
 
 ## 動作要件
 
-- macOS 13.0 以降
-- Bambu Lab プリンタ (X1 / P1 / A1 系) が同じ LAN にあり、**LAN Only Mode が有効** であること
-- Swift 5.9 以上 (Xcode 15 以降 or Swift toolchain)
+- macOS 15.5 以降
+- Xcode 16 以降 (ビルドのみ)
+- 同一 LAN に Bambu Lab プリンタ、または Bambu クラウド上の登録機器
 
-## ビルド
+## ビルドと実行
 
 ```bash
-# Swift executable としてそのまま実行
-swift run
-
-# もしくは .app バンドルを作成（推奨）
-./scripts/build-app.sh
-open build/BambuMultiTask.app
+open BambuMultiTask/BambuMultiTask.xcodeproj
+# Xcode で Cmd+R
 ```
 
-`build-app.sh` は universal binary (arm64 + x86_64) で `.app` を作り、ad-hoc 署名まで行います。
+または CLI:
+
+```bash
+xcodebuild -project BambuMultiTask/BambuMultiTask.xcodeproj \
+  -scheme BambuMultiTask -configuration Debug build
+```
 
 ## 使い方
 
+### A. LAN 接続
+
 1. プリンタ側で **設定 → ネットワーク → LAN Only Mode** を有効化
-2. プリンタの **IP アドレス / シリアル番号 / アクセスコード** をメモ
-   - IP: プリンタ画面の WiFi 設定
-   - シリアル: 本体裏 or 設定画面
-   - アクセスコード: LAN Only Mode の画面に表示される 8 桁
-3. 本アプリを起動し、メニューバーアイコンをクリック
-4. 「設定…」から **＋** ボタンでプリンタを追加
+2. アプリ起動 → 設定 → プリンタ → **＋** で追加
+3. 名前 / IP / シリアル番号 / Access Code を入力して保存
 
-## 認証情報の保存について
+### B. Bambu クラウド接続
 
-現状は `UserDefaults` に Access Code を平文で保存しています (ローカル運用前提)。将来的に Keychain に移行予定。
+1. アプリ起動 → 設定 → **クラウド** タブ
+2. 地域 (グローバル/中国) を選択
+3. メール＋パスワード、または **メール認証コード** でログイン
+4. 「デバイス一覧を取得」→「プリンタ一覧に追加」
 
-## 構成
+※ クラウド API は非公式で、Bambu 側の仕様変更により動作しなくなる可能性があります。動作しない場合は LAN 接続をご利用ください。
+
+## プロジェクト構成
 
 ```
-Sources/BambuMultiTask/
-├── BambuMultiTaskApp.swift      # @main / MenuBarExtra scene
-├── Models/
-│   ├── Printer.swift             # 接続情報
-│   └── PrinterStatus.swift       # 実行時ステータス
-├── Services/
-│   ├── BambuMQTTClient.swift     # CocoaMQTT + TLS + pushall
-│   └── PrinterManager.swift      # 全クライアント集約
-├── Stores/
-│   └── SettingsStore.swift       # UserDefaults 永続化
-└── Views/
-    ├── MenuBarView.swift          # ドロップダウン
-    ├── PrinterRowView.swift       # 各プリンタの行
-    └── SettingsView.swift         # 設定ウィンドウ
+BambuMultiTask/                       # Xcode プロジェクト
+├── BambuMultiTask.xcodeproj
+└── BambuMultiTask/
+    ├── AppDelegate.swift             # NSWindow + SwiftUI root
+    ├── BambuMultiTask.entitlements   # App Sandbox + network.client
+    ├── Assets.xcassets
+    ├── Models/
+    │   ├── Printer.swift              # 接続情報 + 接続種別 (LAN/Cloud)
+    │   └── PrinterStatus.swift
+    ├── Services/
+    │   ├── BambuMQTTClient.swift      # CocoaMQTT + TLS + pushall
+    │   ├── PrinterManager.swift       # 全クライアント集約
+    │   └── BambuCloudSession.swift    # クラウド REST + トークン管理
+    ├── Stores/
+    │   └── SettingsStore.swift        # UserDefaults 永続化
+    └── Views/
+        ├── ContentView.swift           # メインウィンドウ
+        ├── PrinterCardView.swift       # プリンタカード
+        └── SettingsSheet.swift         # 設定シート (プリンタ/クラウド)
 ```
 
 ## 技術メモ
 
-- Bambu プリンタは `mqtts://{IP}:8883` で MQTT over TLS を提供
-- 認証: username `bblp` / password = Access Code
-- 自己署名証明書のため `allowUntrustCACertificate` を有効化
-- 接続後、`device/{SERIAL}/request` に `{"pushing":{"sequence_id":"0","command":"pushall"}}` を publish すると完全な状態が `device/{SERIAL}/report` に返ってくる
-- 以降は差分更新が届く
+- LAN MQTT: `mqtts://{IP}:8883`、ユーザ `bblp` / パスワード Access Code、自己署名証明書を受容
+- クラウド MQTT: `mqtts://{region}.mqtt.bambulab.com:8883`、ユーザ `u_{userID}` / パスワード accessToken
+- 接続後 `device/{SERIAL}/request` に `{"pushing":{"sequence_id":"0","command":"pushall"}}` を publish して全状態を取得
+- クラウド REST: `https://api.bambulab.com/v1/user-service/user/login` でログイン、`/v1/iot-service/api/user/bind` でデバイス一覧
 
 ## 参考
 
 - 公式スライサ: https://github.com/bambulab/BambuStudio
-- MQTT 仕様参考: https://github.com/Doridian/OpenBambuAPI
+- Bambu プロトコル調査: https://github.com/Doridian/OpenBambuAPI
 
 ## ライセンス
 

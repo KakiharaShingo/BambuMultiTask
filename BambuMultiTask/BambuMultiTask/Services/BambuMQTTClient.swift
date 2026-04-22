@@ -2,19 +2,28 @@ import Foundation
 import Combine
 import CocoaMQTT
 
+struct MQTTCredentials {
+    var host: String
+    var port: UInt16 = 8883
+    var username: String
+    var password: String
+}
+
 final class BambuMQTTClient: NSObject, ObservableObject {
     let printer: Printer
     @Published private(set) var status: PrinterStatus = PrinterStatus()
     @Published private(set) var isConnected: Bool = false
     @Published private(set) var lastError: String?
 
+    private var credentialsProvider: () -> MQTTCredentials?
     private var mqtt: CocoaMQTT?
     private var reconnectWorkItem: DispatchWorkItem?
     private let reportTopic: String
     private let requestTopic: String
 
-    init(printer: Printer) {
+    init(printer: Printer, credentialsProvider: @escaping () -> MQTTCredentials?) {
         self.printer = printer
+        self.credentialsProvider = credentialsProvider
         self.reportTopic = "device/\(printer.serialNumber)/report"
         self.requestTopic = "device/\(printer.serialNumber)/request"
         super.init()
@@ -22,10 +31,14 @@ final class BambuMQTTClient: NSObject, ObservableObject {
 
     func connect() {
         disconnect()
+        guard let creds = credentialsProvider() else {
+            markOffline(reason: "認証情報なし")
+            return
+        }
         let clientID = "BambuMultiTask-\(UUID().uuidString.prefix(8))"
-        let client = CocoaMQTT(clientID: clientID, host: printer.host, port: 8883)
-        client.username = "bblp"
-        client.password = printer.accessCode
+        let client = CocoaMQTT(clientID: clientID, host: creds.host, port: creds.port)
+        client.username = creds.username
+        client.password = creds.password
         client.keepAlive = 60
         client.autoReconnect = false
         client.enableSSL = true

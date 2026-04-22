@@ -61,12 +61,4 @@ struct PrinterStatus: Equatable {
         if h > 0 { return "\(h)時間\(m)分" }
         return "\(m)分"
     }
-
-    var shortRemainingText: String {
-        guard isPrinting, remainingMinutes > 0 else { return "" }
-        let h = remainingMinutes / 60
-        let m = remainingMinutes % 60
-        if h > 0 { return "\(h)h\(m)m" }
-        return "\(m)m"
-    }
 }

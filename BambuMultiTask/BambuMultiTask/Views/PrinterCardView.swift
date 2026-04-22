@@ -1,20 +1,27 @@
 import SwiftUI
 
-struct PrinterRowView: View {
+struct PrinterCardView: View {
     @ObservedObject var client: BambuMQTTClient
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Image(systemName: client.status.state.symbolName)
                     .foregroundStyle(stateColor)
-                    .frame(width: 18)
-                Text(client.printer.name)
-                    .font(.headline)
+                    .font(.title3)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(client.printer.name).font(.headline)
+                    Text(client.printer.connection.displayName)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
                 Spacer()
                 Text(client.status.state.displayName)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(stateColor.opacity(0.15), in: Capsule())
+                    .foregroundStyle(stateColor)
             }
 
             if client.status.isPrinting {
@@ -23,19 +30,20 @@ struct PrinterRowView: View {
                 HStack {
                     Text("\(client.status.progressPercent)%")
                         .monospacedDigit()
+                        .font(.subheadline.bold())
                     Spacer()
-                    Text("残り \(client.status.remainingTimeText)")
+                    Label(client.status.remainingTimeText, systemImage: "clock")
+                        .font(.subheadline)
                         .monospacedDigit()
                 }
-                .font(.caption)
                 if client.status.totalLayers > 0 {
                     Text("レイヤー \(client.status.currentLayer) / \(client.status.totalLayers)")
-                        .font(.caption2)
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 if !client.status.jobName.isEmpty {
                     Text(client.status.jobName)
-                        .font(.caption2)
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -46,16 +54,24 @@ struct PrinterRowView: View {
                     .foregroundStyle(.secondary)
             }
 
-            HStack(spacing: 12) {
-                Label(String(format: "%.0f / %.0f°C", client.status.nozzleTemp, client.status.nozzleTarget), systemImage: "flame")
-                Label(String(format: "%.0f / %.0f°C", client.status.bedTemp, client.status.bedTarget), systemImage: "square")
+            HStack(spacing: 14) {
+                tempLabel(icon: "flame.fill", current: client.status.nozzleTemp, target: client.status.nozzleTarget)
+                tempLabel(icon: "square.fill", current: client.status.bedTemp, target: client.status.bedTarget)
+                Spacer()
             }
             .font(.caption2)
             .foregroundStyle(.secondary)
         }
-        .padding(.vertical, 6)
-        .padding(.horizontal, 10)
-        .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 8))
+        .padding(14)
+        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func tempLabel(icon: String, current: Double, target: Double) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: icon)
+            Text(String(format: "%.0f / %.0f°C", current, target))
+                .monospacedDigit()
+        }
     }
 
     private var stateColor: Color {

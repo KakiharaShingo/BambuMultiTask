@@ -22,11 +22,7 @@ xcuserdata/
 # Swift Package Manager
 .build/
 Packages/
-Package.resolved
 .swiftpm/
-
-# Local .app output
-/build/
 
 # CocoaPods
 Pods/
