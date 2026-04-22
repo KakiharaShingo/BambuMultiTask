@@ -25,6 +25,9 @@ Packages/
 Package.resolved
 .swiftpm/
 
+# Local .app output
+/build/
+
 # CocoaPods
 Pods/
 
@@ -42,3 +45,4 @@ fastlane/test_output
 .vscode/
 *.swp
 *.swo
+.claude/
