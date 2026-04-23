@@ -21,6 +21,7 @@ struct Printer: Identifiable, Codable, Hashable {
     var host: String
     var serialNumber: String
     var accessCode: String
+    var cameraURL: String = ""  // 外部カメラ(MJPEG/snapshot) URL
 
     init(
         id: UUID = UUID(),
@@ -28,7 +29,8 @@ struct Printer: Identifiable, Codable, Hashable {
         connection: PrinterConnection = .lan,
         host: String = "",
         serialNumber: String,
-        accessCode: String = ""
+        accessCode: String = "",
+        cameraURL: String = ""
     ) {
         self.id = id
         self.name = name
@@ -36,5 +38,6 @@ struct Printer: Identifiable, Codable, Hashable {
         self.host = host
         self.serialNumber = serialNumber
         self.accessCode = accessCode
+        self.cameraURL = cameraURL
     }
 }

@@ -10,7 +10,7 @@ struct BambuTokens: Codable, Equatable {
     var mqttUsername: String { "u_\(userID)" }
 }
 
-struct BambuCloudDevice: Codable, Identifiable, Hashable {
+struct BambuCloudDevice: Identifiable, Hashable {
     let dev_id: String
     let name: String
     let online: Bool?
@@ -18,6 +18,40 @@ struct BambuCloudDevice: Codable, Identifiable, Hashable {
     let print_status: String?
 
     var id: String { dev_id }
+}
+
+extension BambuCloudDevice: Codable {
+    enum CodingKeys: String, CodingKey {
+        case dev_id, name, online, print_status
+        case dev_access_code
+        case access_code       // P2S 等の代替フィールド名
+        case password          // さらに別の代替
+    }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        dev_id = try c.decode(String.self, forKey: .dev_id)
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+        online = try c.decodeIfPresent(Bool.self, forKey: .online)
+        print_status = try c.decodeIfPresent(String.self, forKey: .print_status)
+        // access code は複数の候補名から最初に空でないものを採用
+        let candidates: [CodingKeys] = [.dev_access_code, .access_code, .password]
+        var code: String? = nil
+        for k in candidates {
+            if let v = try c.decodeIfPresent(String.self, forKey: k), !v.isEmpty {
+                code = v
+                break
+            }
+        }
+        dev_access_code = code
+    }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(dev_id, forKey: .dev_id)
+        try c.encode(name, forKey: .name)
+        try c.encodeIfPresent(online, forKey: .online)
+        try c.encodeIfPresent(dev_access_code, forKey: .dev_access_code)
+        try c.encodeIfPresent(print_status, forKey: .print_status)
+    }
 }
 
 enum BambuCloudError: LocalizedError {
@@ -59,7 +93,13 @@ final class BambuCloudSession: ObservableObject {
             self.region = r
         }
         if let data = UserDefaults.standard.data(forKey: tokensKey),
-           let t = try? JSONDecoder().decode(BambuTokens.self, from: data) {
+           var t = try? JSONDecoder().decode(BambuTokens.self, from: data) {
+            if t.userID.isEmpty, let uid = Self.decodeUserID(from: t.accessToken), !uid.isEmpty {
+                t.userID = uid
+                if let encoded = try? JSONEncoder().encode(t) {
+                    UserDefaults.standard.set(encoded, forKey: tokensKey)
+                }
+            }
             self.tokens = t
         }
     }
@@ -137,7 +177,18 @@ final class BambuCloudSession: ObservableObject {
             throw BambuCloudError.badResponse
         }
         let refresh = obj["refreshToken"] as? String ?? ""
-        let uid = decodeUserID(from: access) ?? ""
+        var uid = Self.extractUserID(fromLoginResponse: obj)
+            ?? Self.decodeUserID(from: access)
+            ?? ""
+        if uid.isEmpty {
+            NSLog("BambuCloud: uid not in login response/JWT, trying profile API")
+            uid = (try? await Self.fetchUserID(accessToken: access, region: region)) ?? ""
+        }
+        if uid.isEmpty {
+            NSLog("BambuCloud: could not extract userID; MQTT auth will fail")
+        } else {
+            NSLog("BambuCloud: resolved userID=\(uid)")
+        }
         let tokens = BambuTokens(accessToken: access, refreshToken: refresh, userID: uid, savedAt: Date())
         self.tokens = tokens
         if let encoded = try? JSONEncoder().encode(tokens) {
@@ -145,7 +196,51 @@ final class BambuCloudSession: ObservableObject {
         }
     }
 
-    private func decodeUserID(from jwt: String) -> String? {
+    func refreshUserIDIfNeeded() async {
+        guard var t = tokens, t.userID.isEmpty else { return }
+        if let uid = try? await Self.fetchUserID(accessToken: t.accessToken, region: region), !uid.isEmpty {
+            t.userID = uid
+            self.tokens = t
+            if let encoded = try? JSONEncoder().encode(t) {
+                UserDefaults.standard.set(encoded, forKey: tokensKey)
+            }
+            NSLog("BambuCloud: refreshed userID=\(uid)")
+        }
+    }
+
+    static func fetchUserID(accessToken: String, region: BambuRegion) async throws -> String? {
+        let candidates = [
+            "/v1/user-service/my/profile",
+            "/v1/user-service/my/account",
+            "/v1/user-service/my/preference"
+        ]
+        for path in candidates {
+            let url = region.apiURL.appendingPathComponent(path)
+            var req = URLRequest(url: url)
+            req.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+            guard let (data, resp) = try? await URLSession.shared.data(for: req),
+                  let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else { continue }
+            NSLog("BambuCloud: profile \(path) keys=\(Array(obj.keys))")
+            if let uid = extractUserID(fromLoginResponse: obj) { return uid }
+            if let userInfo = obj["userInfo"] as? [String: Any],
+               let uid = extractUserID(fromLoginResponse: userInfo) { return uid }
+        }
+        return nil
+    }
+
+    static func extractUserID(fromLoginResponse obj: [String: Any]) -> String? {
+        for key in ["uidStr", "uid", "userId", "user_id", "username"] {
+            if let s = obj[key] as? String, !s.isEmpty {
+                return s.hasPrefix("u_") ? String(s.dropFirst(2)) : s
+            }
+            if let n = obj[key] as? Int { return String(n) }
+        }
+        return nil
+    }
+
+    static func decodeUserID(from jwt: String) -> String? {
         let parts = jwt.split(separator: ".")
         guard parts.count >= 2 else { return nil }
         var payload = String(parts[1])
@@ -154,12 +249,16 @@ final class BambuCloudSession: ObservableObject {
         let urlSafe = payload.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
         guard let data = Data(base64Encoded: urlSafe),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            NSLog("BambuCloud: JWT payload decode failed")
             return nil
         }
-        if let u = obj["username"] as? String { return u }
-        if let u = obj["userId"] as? String { return u }
-        if let u = obj["uid"] as? String { return u }
-        if let u = obj["uid"] as? Int { return String(u) }
+        NSLog("BambuCloud: JWT payload keys=\(Array(obj.keys))")
+        for key in ["username", "preferred_username", "sub", "userId", "user_id", "uid", "uidStr"] {
+            if let s = obj[key] as? String, !s.isEmpty {
+                return s.hasPrefix("u_") ? String(s.dropFirst(2)) : s
+            }
+            if let n = obj[key] as? Int { return String(n) }
+        }
         return nil
     }
 }

@@ -1,35 +1,24 @@
 import Cocoa
 import SwiftUI
 
-@main
 @MainActor
-class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate {
 
-    private var window: NSWindow?
-    private let settings = SettingsStore()
-    private let cloudSession = BambuCloudSession()
-    private lazy var manager: PrinterManager = {
-        let m = PrinterManager(settings: settings)
+    let settings = SettingsStore()
+    let cloudSession = BambuCloudSession()
+    let history = PrintHistoryStore()
+    let discovery = BambuDiscovery()
+    let studioBridge = BambuStudioBridge()
+    lazy var manager: PrinterManager = {
+        let m = PrinterManager(settings: settings, history: history)
         m.cloudSession = cloudSession
         return m
     }()
 
     func applicationDidFinishLaunching(_ aNotification: Notification) {
         _ = manager
-        let rootView = ContentView()
-            .environmentObject(settings)
-            .environmentObject(manager)
-            .environmentObject(cloudSession)
-
-        let hosting = NSHostingController(rootView: rootView)
-        let window = NSWindow(contentViewController: hosting)
-        window.title = "Bambu MultiTask"
-        window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
-        window.setContentSize(NSSize(width: 720, height: 520))
-        window.center()
-        window.makeKeyAndOrderFront(nil)
-        self.window = window
-
+        discovery.start()
+        studioBridge.probe()
         NSApp.activate(ignoringOtherApps: true)
     }
 
@@ -43,5 +32,27 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
         true
+    }
+}
+
+@main
+struct BambuMultiTaskApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+
+    var body: some Scene {
+        WindowGroup("Bambu MultiTask") {
+            ContentView()
+                .environmentObject(appDelegate.settings)
+                .environmentObject(appDelegate.manager)
+                .environmentObject(appDelegate.cloudSession)
+                .environmentObject(appDelegate.history)
+                .environmentObject(appDelegate.discovery)
+                .environmentObject(appDelegate.studioBridge)
+                .frame(minWidth: 600, minHeight: 400)
+        }
+        .defaultSize(width: 720, height: 520)
+        .commands {
+            CommandGroup(replacing: .newItem) { }
+        }
     }
 }
